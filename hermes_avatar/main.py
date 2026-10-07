@@ -26,7 +26,9 @@ from .api_client import HermesApiClient
 
 class HermesAvatar(QMainWindow):
     """Main application window for Hermes Girl Avatar."""
-    
+
+    hermes_response = pyqtSignal(str)  # worker-thread -> main-thread delivery
+
     def __init__(self, config_path: str = None):
         super().__init__()
         
@@ -42,6 +44,13 @@ class HermesAvatar(QMainWindow):
         self.chat_window = None
         self.discord_client = None
         self.api_client = HermesApiClient(config_path)
+        self._closing = False
+        
+        # Le risposte arrivano da worker thread: QTimer.singleShot li' non
+        # scatta mai (niente event loop in quel thread) e la risposta si
+        # perde. Il segnale con AutoConnection fa il marshalling nel main
+        # thread (QueuedConnection quando emesso da un altro thread).
+        self.hermes_response.connect(self._show_hermes_response)
         
         # Setup UI
         self.setup_ui()
@@ -170,9 +179,10 @@ class HermesAvatar(QMainWindow):
                 try:
                     self.discord_client = HermesDiscordClient()
 
-                    # Register callbacks - wrap in QTimer.singleShot to ensure GUI updates happen in main thread
+                    # Callback from the Discord gateway thread: deliver the
+                    # response to the main thread via thread-safe signal emit.
                     def show_hermes_wrapper(text):
-                        QTimer.singleShot(0, lambda: self._show_hermes_response(text))
+                        self.hermes_response.emit(text)
                     self.discord_client.register_response_callback(show_hermes_wrapper)
 
                     # Start bot (blocking call in background thread)
@@ -207,8 +217,8 @@ class HermesAvatar(QMainWindow):
                     else:
                         print(f"❌ Hermes error: {result['error']}")
                         answer = f"⚠️ Errore Hermes: {result['error']}"
-                    # GUI update sempre nel thread principale
-                    QTimer.singleShot(0, lambda: self._show_hermes_response(answer))
+                    # Thread-safe: emit queued to the main thread's event loop
+                    self.hermes_response.emit(answer)
                 except Exception as e:
                     print(f"Error in API chat: {e}")
 
@@ -237,12 +247,14 @@ class HermesAvatar(QMainWindow):
                 print(f"Failed to send message: {e}")
         else:
             print("⚠️ Nessun canale Hermes attivo (API disattivata, Discord non pronto)")
-            QTimer.singleShot(0, lambda: self._show_hermes_response(
+            self.hermes_response.emit(
                 "⚠️ Nessun canale Hermes attivo: configura HERMES_API_KEY in .env "
-                "(api_server) oppure DISCORD_BOT_TOKEN per il fallback Discord."))
+                "(api_server) oppure DISCORD_BOT_TOKEN per il fallback Discord.")
     
     def _show_hermes_response(self, text: str):
         """Show Hermes response in chat window."""
+        if self._closing:
+            return
         if self.chat_window:
             self.chat_window.show_hermes_suggestion(text)
         
@@ -251,12 +263,13 @@ class HermesAvatar(QMainWindow):
     
     def start_screen_capture(self):
         """Start periodic screen capture and send to Hermes."""
-        def on_capture_result(result):
+        def on_capture_result(result: dict):
+            # Runs on the capture worker thread: emit is thread-safe and the
+            # slot then executes in the main thread.
             if result.get("success"):
                 analysis = result.get("analysis")
                 print(f"Hermes analysis: {analysis}")
-                # Use QTimer.singleShot to ensure GUI update happens in main thread
-                QTimer.singleShot(0, lambda: self._show_hermes_response(analysis))
+                self.hermes_response.emit(analysis or "")
             else:
                 error = result.get("error")
                 print(f"Capture error: {error}")
@@ -316,17 +329,32 @@ class HermesAvatar(QMainWindow):
         """Handle close button click."""
         self.close()
     
+    def shutdown(self):
+        """Best-effort teardown: stop background timers/threads."""
+        self._closing = True
+        try:
+            self.screen_capture.stop_periodic_capture()
+        except Exception:
+            pass
+        try:
+            self.sprite_animator.stop()
+        except Exception:
+            pass
+
     def closeEvent(self, event):
         """Handle window close - minimize to tray instead of quit."""
         if self.tray_icon.isVisible():
             self.hide()
             event.ignore()
         else:
+            self.shutdown()
             event.accept()
 
 
 def main():
     """Main entry point."""
+    import signal
+
     app = QApplication(sys.argv)
     app.setApplicationName("Hermes Girl Avatar")
     
@@ -335,6 +363,11 @@ def main():
     
     # Create and show main window
     window = HermesAvatar()
+    app.aboutToQuit.connect(window.shutdown)
+
+    # Ctrl+C must NOT raise KeyboardInterrupt inside Qt's C++ event loop
+    # (that is what aborted with "core dumped"); quit gracefully instead.
+    signal.signal(signal.SIGINT, lambda *_: QApplication.instance().quit())
     
     sys.exit(app.exec())
 

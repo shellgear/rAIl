@@ -142,11 +142,6 @@ class ScreenCapture:
             
             # Send to Hermes
             result = self.send_to_hermes(screenshot_bytes)
-            
-            # Trigger callback if registered
-            if self.capture_callback and result.get("success"):
-                self.capture_callback(result.get("analysis"))
-            
             return result
             
         except Exception as e:
@@ -173,8 +168,10 @@ class ScreenCapture:
                 time.sleep(self.interval)
                 if self.is_running:
                     result = self.capture_and_send()
-                    if result.get("success") and callback:
-                        callback(result.get("analysis"))
+                    # Deliver the whole result dict; the listener (main.py)
+                    # marshals it to the main thread via its Qt signal.
+                    if self.is_running and callback:
+                        callback(result)
         
         thread = threading.Thread(target=capture_loop, daemon=True)
         thread.start()

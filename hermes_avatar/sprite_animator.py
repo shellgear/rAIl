@@ -99,14 +99,33 @@ class SpriteAnimator:
     
     def _animate(self, widget: QLabel):
         """Advance animation frame."""
-        frames = self.load_frames(self.current_state)
-        if not frames:
+        if getattr(self, "_closing", False):
             return
-        
-        self.current_frame = (self.current_frame + 1) % len(frames)
-        # Scale to widget size
-        scaled_pixmap = frames[self.current_frame].scaled(widget.width(), widget.height(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-        widget.setPixmap(scaled_pixmap)
+        try:
+            frames = self.load_frames(self.current_state)
+            if not frames:
+                return
+            
+            self.current_frame = (self.current_frame + 1) % len(frames)
+            # Scale to widget size
+            scaled_pixmap = frames[self.current_frame].scaled(widget.width(), widget.height(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            widget.setPixmap(scaled_pixmap)
+        except RuntimeError:
+            # Widget/C++ object already torn down during shutdown
+            pass
+    
+    def stop(self):
+        """Stop the frame animation timer (safe during shutdown/Ctrl+C).
+
+        Keeps the QTimer from firing while Qt widgets are being destroyed,
+        which previously aborted the app with 'core dumped' on Ctrl+C.
+        """
+        self._closing = True
+        if self.frame_timer is not None:
+            try:
+                self.frame_timer.stop()
+            except RuntimeError:
+                pass
     
     def set_state(self, state: str):
         """Change animation state (idle, speak, think, alert)."""
