@@ -57,21 +57,30 @@ class HermesApiClient:
 
         self.config = self._load_config(config_path)
         api_cfg = self.config.get("api", {})
-        self.endpoint = api_cfg.get("endpoint", "http://localhost:8642/v1/chat/completions")
+        # .env / environment variables win over config.yaml defaults
+        self.endpoint = (os.getenv("HERMES_API_ENDPOINT")
+                         or api_cfg.get("endpoint", "http://localhost:8642/v1/chat/completions"))
         self.model = api_cfg.get("model", "hermes-agent")
-        self.timeout = api_cfg.get("timeout", 60)
+        self.timeout = int(os.getenv("HERMES_API_TIMEOUT") or api_cfg.get("timeout", 150))
         self.session_id = api_cfg.get("session_id", "rail-desktop")
         # Accept both "api_key_env" (name of env var) and plain "api_key".
         key_env = api_cfg.get("api_key_env", "HERMES_API_KEY")
         self.api_key = os.getenv(key_env) or api_cfg.get("api_key", "")
+        # RAIL_API_ENABLED=false in .env disables the direct channel entirely.
+        self._disabled = os.getenv("RAIL_API_ENABLED", "").strip().lower() == "false"
 
     def _load_config(self, config_path) -> dict:
-        with open(config_path, "r") as f:
-            return yaml.safe_load(f) or {}
+        try:
+            with open(config_path, "r") as f:
+                return yaml.safe_load(f) or {}
+        except OSError:
+            return {}
 
     @property
     def enabled(self) -> bool:
         """True when api_server integration is configured and usable."""
+        if self._disabled:
+            return False
         return bool(self.api_key) and "http" in self.endpoint
 
     def chat(self, text: str, image_b64: Optional[str] = None,

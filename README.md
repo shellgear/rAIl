@@ -63,16 +63,36 @@ python -c "import discord; print('discord.py OK')"
 python setup.py
 ```
 
-Il wizard ti guiderà nella configurazione di:
-1. **Discord Bot Token** - Token del bot Discord per comunicare con Hermes
-2. **Discord Channel ID** - ID del canale dove Rail si connette (default: 1552636595532865587)
-3. **Hermes User ID** - ID dell'utente/bot Hermes (default: 371369636924751873)
-4. **Screen Capture Interval** - Intervallo screenshot (default: 30s)
-5. **Avatar Settings** - Dimensione e posizione (default: 200x200, top-right)
+Il wizard chiede due canali, indipendenti (almeno uno attivo):
+1. **Hermes API (consigliato)** - connessione HTTP diretta al gateway Hermes
+   (`api_server` platform). Locale = `http://localhost:8642/v1/chat/completions`
+   con **chiave API rilevata automaticamente** se Hermes è sulla stessa macchina;
+   remoto = incolla URL/tunnel (https://... o VPN) + chiave.
+2. **Discord (fallback)** - bot Discord con Message Content intent abilitato,
+   token + Channel ID + Hermes User ID.
+3. **Avatar** - dimensione/posizione (opzionale, default 200x200 top-right).
 
-Il wizard creerà:
-- `.env` - Contiene `DISCORD_BOT_TOKEN` (SENSITIVO - NON COMMITTARE!)
-- `config.local.yaml` - Contiene impostazioni locali (SENSITIVO - NON COMMITTARE!)
+Utile: `python setup.py --check` verifica in ogni momento connettività e auth.
+
+**Caso REMOTO (il più comune): Hermes su un'altra macchina.** Nella sezione API
+del wizard scegli:
+- **[1] Tunnel SSH** (consigliato, zero setup sul server): inserisci `user@host`
+  Hermes; Rail parla con `http://localhost:8642` attraverso un tunnel SSH cifrato.
+  Avvia il tunnel con `./rail-tunnel.sh` (oppure a mano:
+  `ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -L 8642:localhost:8642 user@hermes-host`)
+  PRIMA di lanciare Rail; `setup.py --check` dice se il tunnel è giù.
+  Requisito: chiave SSH funzionante verso l'host Hermes e api_server in ascolto
+  su localhost:8642 (default Hermes, nessuna porta da esporre).
+- **[2] VPN/tailnet/HTTPS**: serve una via di rete già esistente (Tailscale,
+  WireGuard, o dominio con TLS) → inserisci `ip:port` o `https://dominio`.
+- **[3] Stessa macchina** (raro): endpoint e chiave rilevati automaticamente.
+
+Nota VPN: `platforms.api_server` di default ascolta SOLO su 127.0.0.1 — se
+usi VPN/tailnet, sull'host Hermes imposta anche `extra.host: 0.0.0.0` (e chiave
+forte) prima di puntarci Rail da remoto.
+
+Il wizard scrive tutto in `.env` (UNICO file di configurazione, SENSITIVO - NON
+COMMITTARE!). I valori di default restano in `config.yaml`: l'edit a mano non serve.
 
 **Per ottenere un Discord Bot Token**:
 1. Vai su https://discord.com/developers/applications
@@ -112,12 +132,13 @@ avatar:
   always_on_top: true
   transparent_background: false
 
-# Endpoint API Hermes
+# Endpoint API Hermes (sovrascrivibile via .env: HERMES_API_ENDPOINT)
 api:
-  endpoint: "http://localhost:8000/v1/chat/completions"
-  model: "qwen3.5-122b"
-  timeout: 10
-  format: "base64"
+  endpoint: "http://localhost:8642/v1/chat/completions"  # Hermes gateway api_server
+  model: "hermes-agent"
+  timeout: 150
+  session_id: "rail-chat"
+  capture_session_id: "rail-screen"
 
 # Chat window
 chat_window:
@@ -230,9 +251,13 @@ pip install PyQt6
 
 ### API Hermes non risponde
 
-- Verifica che Hermes sia in esecuzione su `localhost:8000`
-- Controlla `config.yaml` per l'endpoint corretto
-- Se Hermes non è configurato, l'app mostrerà risposte simulate
+- Verifica che il gateway Hermes sia attivo: `python setup.py --check`
+- Hermes deve avere `platforms.api_server.enabled: true` in `~/.hermes/config.yaml`
+  (porta 8642) e la stessa chiave API in `extra.key` e in `rAIl/.env`
+  (`HERMES_API_KEY`) — il wizard `python setup.py` li allinea automaticamente
+- Se Hermes è su un'altra macchina: collega via VPN/tunnel o HTTPS, poi
+  reimposta l'endpoint con `python setup.py`
+- Senza canali attivi l'app non può chattare: esegui il setup wizard
 
 ### Finestra non appare
 
