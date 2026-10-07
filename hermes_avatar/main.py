@@ -163,14 +163,23 @@ class HermesAvatar(QMainWindow):
         self.chat_window.activateWindow()
     
     def init_discord(self):
-        """Initialize Discord client in background thread."""
+        """Initialize Discord client in background thread (opt-in).
+
+        Requires RAIL_DISCORD_ENABLED=true in .env. A leftover
+        DISCORD_BOT_TOKEN in the environment is ignored when the flag
+        is off, so the Discord path never starts by accident.
+        """
         try:
             import threading
             import os
             
-            # Check if Discord token is set
+            # Gating: flag esplicito, non presenza del token
+            if os.getenv("RAIL_DISCORD_ENABLED", "").strip().lower() not in ("1", "true", "yes", "on"):
+                print("ℹ️  Discord channel disabled (RAIL_DISCORD_ENABLED != true; set it in .env to enable).")
+                return
+            
             if not os.getenv("DISCORD_BOT_TOKEN"):
-                print("⚠️  DISCORD_BOT_TOKEN not set. Run 'python setup.py' to configure.")
+                print("⚠️  RAIL_DISCORD_ENABLED=true ma DISCORD_BOT_TOKEN vuoto: Discord non parte.")
                 return
             
             print("🤖 Initializing Discord client...")

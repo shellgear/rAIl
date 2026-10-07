@@ -253,14 +253,17 @@ def setup_discord(env: dict) -> bool:
     print()
 
     if not ask_yes_no("Use Discord as communication channel?", default=False):
+        env["RAIL_DISCORD_ENABLED"] = "false"
         print_info("Discord disabled.")
         return True
 
     token = getpass("Discord Bot Token: ").strip()
     if not token:
+        env["RAIL_DISCORD_ENABLED"] = "false"
         print_warning("No token given: Discord channel stays disabled.")
         return True
 
+    env["RAIL_DISCORD_ENABLED"] = "true"
     env["DISCORD_BOT_TOKEN"] = token
     env["DISCORD_CHANNEL_ID"] = ask_input_if(
         "Discord Channel ID", env.get("DISCORD_CHANNEL_ID", "1552636595532865587"))
@@ -327,12 +330,15 @@ def run_check() -> bool:
     else:
         print_info("API channel: disabled")
 
-    if env.get("DISCORD_BOT_TOKEN"):
-        print_info("Discord channel: token configured (tested at app start)")
+    if env.get("RAIL_DISCORD_ENABLED", "false").lower() == "true" and env.get("DISCORD_BOT_TOKEN"):
+        print_info("Discord channel: ENABLED (token configured, tested at app start)")
+    elif env.get("DISCORD_BOT_TOKEN"):
+        print_info("Discord channel: token present but RAIL_DISCORD_ENABLED != true (ignored)")
     else:
         print_info("Discord channel: not configured")
 
-    if not api_enabled and not env.get("DISCORD_BOT_TOKEN"):
+    if not api_enabled and not (env.get("RAIL_DISCORD_ENABLED", "false").lower() == "true"
+                                 and env.get("DISCORD_BOT_TOKEN")):
         print_error("No channel active: run 'python setup.py'")
         ok = False
     return ok
@@ -367,7 +373,8 @@ def main():
 
     print_header("Done")
     api_on = env.get("RAIL_API_ENABLED", "false").lower() == "true" and env.get("HERMES_API_KEY")
-    disc_on = bool(env.get("DISCORD_BOT_TOKEN"))
+    disc_on = (env.get("RAIL_DISCORD_ENABLED", "false").lower() == "true"
+               and bool(env.get("DISCORD_BOT_TOKEN")))
     if api_on:
         print_success("API channel: ENABLED")
     if disc_on:

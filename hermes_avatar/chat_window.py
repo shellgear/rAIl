@@ -139,8 +139,8 @@ class ChatWindow(QMainWindow):
             self.message_sent.emit(message)
             self.input_field.clear()
             
-            # Add user message to chat area
-            self.add_message(f"👤 Tu: {message}", is_user=True)
+            # Add user message to chat area (add_message adds the "Tu: " prefix)
+            self.add_message(message, is_user=True)
     
     def add_message(self, text: str, is_user: bool = False):
         """Add a message to the chat area."""
