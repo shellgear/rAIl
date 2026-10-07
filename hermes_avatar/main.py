@@ -21,6 +21,7 @@ from .screen_capture import ScreenCapture
 from .chat_window import ChatWindow
 from .sprite_animator import SpriteAnimator
 from .discord_client import HermesDiscordClient
+from .api_client import HermesApiClient
 
 
 class HermesAvatar(QMainWindow):
@@ -40,6 +41,7 @@ class HermesAvatar(QMainWindow):
         self.sprite_animator = SpriteAnimator(config_path)
         self.chat_window = None
         self.discord_client = None
+        self.api_client = HermesApiClient(config_path)
         
         # Setup UI
         self.setup_ui()
@@ -188,14 +190,33 @@ class HermesAvatar(QMainWindow):
             print(f"❌ Failed to initialize Discord: {e}")
     
     def _handle_user_message(self, message: str):
-        """Handle message from user to Hermes via Discord."""
+        """Send user message to Hermes: direct API first, Discord as fallback."""
         print(f"📤 Sending to Hermes: {message}")
-        
+
         # Show thinking animation
         self.sprite_animator.set_state("think")
-        
-        # Send message via Discord if client is ready
-        # Add @Hermesso mention to ensure Hermes responds
+
+        # Channel primario: API diretta al gateway Hermes (sincrona, contestuale)
+        if self.api_client and self.api_client.enabled:
+            def ask():
+                try:
+                    result = self.api_client.chat(message)
+                    if result["success"]:
+                        print(f"✅ Hermes ({result['elapsed']:.1f}s): {result['response'][:60]}")
+                        answer = result["response"]
+                    else:
+                        print(f"❌ Hermes error: {result['error']}")
+                        answer = f"⚠️ Errore Hermes: {result['error']}"
+                    # GUI update sempre nel thread principale
+                    QTimer.singleShot(0, lambda: self._show_hermes_response(answer))
+                except Exception as e:
+                    print(f"Error in API chat: {e}")
+
+            thread = threading.Thread(target=ask, daemon=True)
+            thread.start()
+            return
+
+        # Fallback: Discord (se il bot è pronto)
         if self.discord_client and self.discord_client.bot.is_ready():
             try:
                 def send():
@@ -215,9 +236,10 @@ class HermesAvatar(QMainWindow):
             except Exception as e:
                 print(f"Failed to send message: {e}")
         else:
-            # Fallback: simulated response
-            print("⚠️  Discord not ready, showing simulated response")
-            QTimer.singleShot(2000, lambda: self._show_hermes_response("⚠️ Discord non pronto. Attendi qualche secondo..."))
+            print("⚠️ Nessun canale Hermes attivo (API disattivata, Discord non pronto)")
+            QTimer.singleShot(0, lambda: self._show_hermes_response(
+                "⚠️ Nessun canale Hermes attivo: configura HERMES_API_KEY in .env "
+                "(api_server) oppure DISCORD_BOT_TOKEN per il fallback Discord."))
     
     def _show_hermes_response(self, text: str):
         """Show Hermes response in chat window."""

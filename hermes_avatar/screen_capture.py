@@ -16,6 +16,8 @@ import yaml
 import os
 from pathlib import Path
 
+from .api_client import HermesApiClient
+
 
 class ScreenCapture:
     """Captures screen and sends to Hermes API without saving to disk."""
@@ -35,6 +37,9 @@ class ScreenCapture:
         self.api_config = self.config.get("api", {})
         self.is_running = False
         self.capture_callback: Optional[Callable] = None
+        # Canale diretto verso Hermes api_server (autenticato)
+        self.api = HermesApiClient(config_path)
+        self.capture_session = self.api_config.get("capture_session_id", "rail-screen")
         
     def _load_config(self, config_path: str) -> dict:
         """Load configuration from YAML file."""
@@ -87,66 +92,39 @@ class ScreenCapture:
     
     def send_to_hermes(self, screenshot_bytes: bytes) -> dict:
         """
-        Send screenshot to Hermes API for analysis.
+        Send screenshot to Hermes API for analysis (authenticated api_server).
         
         Args:
             screenshot_bytes: JPEG image bytes
             
         Returns:
-            API response dict with Hermes' analysis
+            dict with success, analysis (Hermes answer) and error keys
         """
-        api_endpoint = self.api_config.get("endpoint", "http://localhost:8000/v1/chat/completions")
-        model = self.api_config.get("model", "qwen3.5-122b")
-        timeout = self.api_config.get("timeout", 10)
-        
-        # Convert to base64
-        base64_image = base64.b64encode(screenshot_bytes).decode('utf-8')
-        
-        # Prepare payload for vision analysis
-        payload = {
-            "model": model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "Analizza questo screenshot e fornisci suggerimenti utili per l'utente su ciò che sta facendo a schermo. Sii conciso e pratico."
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
-                            }
-                        }
-                    ]
-                }
-            ],
-            "max_tokens": 500
-        }
-        
-        try:
-            response = requests.post(
-                api_endpoint,
-                json=payload,
-                timeout=timeout,
-                headers={"Content-Type": "application/json"}
-            )
-            response.raise_for_status()
-            
-            result = response.json()
-            return {
-                "success": True,
-                "analysis": result.get("choices", [{}])[0].get("message", {}).get("content", "Nessuna analisi disponibile"),
-                "timestamp": time.time()
-            }
-            
-        except requests.exceptions.RequestException as e:
+        if not self.api.enabled:
             return {
                 "success": False,
-                "error": f"API request failed: {str(e)}",
-                "analysis": None
+                "error": "Hermes API non configurato (HERMES_API_KEY mancante in .env)",
+                "analysis": None,
             }
+
+        # Convert to base64 and send as multimodal message (text + image)
+        base64_image = base64.b64encode(screenshot_bytes).decode('utf-8')
+        prompt = ("Analizza questo screenshot e fornisci suggerimenti utili "
+                  "per l'utente su ciò che sta facendo a schermo. "
+                  "Sii conciso e pratico.")
+
+        result = self.api.chat(
+            prompt,
+            image_b64=base64_image,
+            image_mime="image/jpeg",
+            session_id=self.capture_session,
+        )
+        return {
+            "success": result["success"],
+            "analysis": result.get("response"),
+            "error": result.get("error"),
+            "timestamp": time.time(),
+        }
     
     def capture_and_send(self) -> dict:
         """

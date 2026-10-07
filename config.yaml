@@ -10,12 +10,16 @@ screen_capture:
   interval_seconds: 30  # 5-60 seconds (configurable)
   enabled: true
 
-# API settings (for future Hermes proxy integration)
+# Hermes Agent API (platform nativo "api_server", OpenAI-compatible)
+# Richiede in ~/.hermes/config.yaml: platforms.api_server.enabled: true + key
+# La chiave API sta in .env come HERMES_API_KEY (mai in questo file, è in git)
 api:
-  endpoint: "http://localhost:8000/v1/chat/completions"  # Hermes local endpoint (TODO)
-  model: "qwen3.5-122b"
-  timeout: 10
-  format: "base64"  # Send screenshots as base64
+  endpoint: "http://localhost:8642/v1/chat/completions"  # Hermes gateway api_server
+  model: "hermes-agent"   # il gateway risolve il suo modello di default
+  timeout: 150            # le turni agent con tool possono superare i 60s
+  session_id: "rail-chat"      # contesto conversazione chat
+  capture_session_id: "rail-screen"  # contesto separato per screen capture
+  api_key_env: "HERMES_API_KEY"
 
 # Avatar settings
 avatar:
