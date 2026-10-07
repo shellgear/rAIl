@@ -9,6 +9,8 @@ Configuration:
   - config.local.yaml: channel_id, hermes_user_id (optional, uses defaults if missing)
 """
 
+from __future__ import annotations
+
 import os
 import asyncio
 import logging
